@@ -43,7 +43,7 @@ st.markdown("""
     }
 
     .hero h1 {
-        color: #ffffff;
+        color: white;
         font-size: 34px;
         margin-bottom: 5px;
     }
@@ -68,7 +68,7 @@ st.markdown("""
     }
 
     .metric-value {
-        color: #ffffff;
+        color: white;
         font-size: 25px;
         font-weight: 700;
     }
@@ -80,7 +80,7 @@ st.markdown("""
     }
 
     .section-title {
-        color: #ffffff;
+        color: white;
         font-size: 20px;
         font-weight: 650;
         margin-top: 22px;
@@ -107,15 +107,6 @@ st.markdown("""
         font-size: 12px;
         padding: 25px 0 10px 0;
     }
-
-    div[data-testid="stDataFrame"] {
-        border: 1px solid #263449;
-        border-radius: 10px;
-    }
-
-    .stButton button {
-        border-radius: 8px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -128,19 +119,12 @@ BASE_DIR = Path(__file__).resolve().parent
 CSV_FILE = BASE_DIR / "sales_data.csv"
 
 REQUIRED_COLUMNS = [
-    "order_id",
-    "order_date",
-    "customer_id",
-    "customer_name",
-    "city",
-    "state",
-    "gender",
-    "product_id",
-    "product_name",
-    "category",
-    "price",
-    "quantity",
-    "total_amount"
+    "OrderDate",
+    "Product",
+    "Category",
+    "Quantity",
+    "UnitPrice",
+    "Region"
 ]
 
 
@@ -148,73 +132,87 @@ REQUIRED_COLUMNS = [
 # DATA LOADING
 # --------------------------------------------------
 
-@st.cache_data(ttl=300, show_spinner="Loading sales data from CSV...")
+@st.cache_data(ttl=300)
 def load_data():
 
     if not CSV_FILE.exists():
         raise FileNotFoundError(
-            f"sales_data.csv not found at: {CSV_FILE}"
+            "sales_data.csv was not found in the project directory."
         )
 
     df = pd.read_csv(CSV_FILE)
-    st.write("CSV Column Names:", df.columns.tolist())
-    st.write("First 5 Records:", df.head())
-    
-    # Normalize column names
-    df.columns = (
-        df.columns
-        .str.strip()
-        .str.lower()
-    )
 
-    # Validate required columns
-    missing_columns = [
-        col for col in REQUIRED_COLUMNS
+    # Normalize column names
+    df.columns = df.columns.str.strip().str.lower()
+
+    # Expected normalized columns
+    expected = [
+        "orderdate",
+        "product",
+        "category",
+        "quantity",
+        "unitprice",
+        "region"
+    ]
+
+    missing = [
+        col for col in expected
         if col not in df.columns
     ]
 
-    if missing_columns:
+    if missing:
         raise ValueError(
-            "Missing required columns: "
-            + ", ".join(missing_columns)
+            "Missing CSV columns: " + ", ".join(missing)
         )
 
-    # Keep expected columns
-    df = df[REQUIRED_COLUMNS].copy()
+    # Rename columns for consistent use
+    df = df.rename(columns={
+        "orderdate": "order_date",
+        "product": "product",
+        "category": "category",
+        "quantity": "quantity",
+        "unitprice": "unit_price",
+        "region": "region"
+    })
 
-    # Convert date
+    # Convert data types
     df["order_date"] = pd.to_datetime(
         df["order_date"],
         errors="coerce"
     )
 
-    # Convert numeric columns
-    numeric_columns = [
-        "price",
-        "quantity",
-        "total_amount"
-    ]
+    df["quantity"] = pd.to_numeric(
+        df["quantity"],
+        errors="coerce"
+    )
 
-    for col in numeric_columns:
-        df[col] = pd.to_numeric(
-            df[col],
-            errors="coerce"
-        )
+    df["unit_price"] = pd.to_numeric(
+        df["unit_price"],
+        errors="coerce"
+    )
 
-    # Remove invalid rows
+    # Remove invalid records
     df = df.dropna(
         subset=[
             "order_date",
-            "total_amount",
-            "quantity"
+            "product",
+            "category",
+            "quantity",
+            "unit_price",
+            "region"
         ]
     )
 
-    # Remove negative or invalid values
+    # Validate values
     df = df[
         (df["quantity"] >= 0) &
-        (df["total_amount"] >= 0)
-    ]
+        (df["unit_price"] >= 0)
+    ].copy()
+
+    # Calculate revenue
+    df["total_amount"] = (
+        df["quantity"] * df["unit_price"]
+    )
 
     return df
 
@@ -228,6 +226,7 @@ def format_currency(value):
 
 
 def metric_card(label, value, help_text=""):
+
     st.markdown(
         f"""
         <div class="metric-card">
@@ -241,6 +240,7 @@ def metric_card(label, value, help_text=""):
 
 
 def section_title(title):
+
     st.markdown(
         f'<div class="section-title">{title}</div>',
         unsafe_allow_html=True
@@ -267,24 +267,18 @@ st.markdown("""
 # --------------------------------------------------
 
 try:
+
     df = load_data()
 
-except FileNotFoundError:
-    st.error(
-        "Sales dataset not found. Please add "
-        "`sales_data.csv` to the project root directory."
-    )
-    st.stop()
-
 except Exception as error:
+
     st.error(f"Unable to load sales data: {error}")
     st.stop()
 
 
 if df.empty:
-    st.warning(
-        "The sales_data.csv file is empty or contains no valid records."
-    )
+
+    st.warning("No valid sales records found in sales_data.csv.")
     st.stop()
 
 
@@ -296,7 +290,10 @@ st.sidebar.markdown("## ⚙️ Dashboard Controls")
 
 st.sidebar.caption("DATA SOURCE · CSV sales_data.csv")
 
-if st.sidebar.button("🔄 Refresh Data", use_container_width=True):
+if st.sidebar.button(
+    "🔄 Refresh Data",
+    use_container_width=True
+):
     load_data.clear()
     st.rerun()
 
@@ -319,7 +316,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### 📦 Category Filter")
 
 categories = sorted(
-    df["category"].dropna().astype(str).unique()
+    df["category"].astype(str).unique()
 )
 
 selected_categories = st.sidebar.multiselect(
@@ -330,30 +327,16 @@ selected_categories = st.sidebar.multiselect(
 
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 📍 State Filter")
+st.sidebar.markdown("### 🌍 Region Filter")
 
-states = sorted(
-    df["state"].dropna().astype(str).unique()
+regions = sorted(
+    df["region"].astype(str).unique()
 )
 
-selected_states = st.sidebar.multiselect(
-    "Select states",
-    states,
-    default=states
-)
-
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 🏙️ City Filter")
-
-cities = sorted(
-    df["city"].dropna().astype(str).unique()
-)
-
-selected_cities = st.sidebar.multiselect(
-    "Select cities",
-    cities,
-    default=cities
+selected_regions = st.sidebar.multiselect(
+    "Select regions",
+    regions,
+    default=regions
 )
 
 
@@ -372,24 +355,23 @@ if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
         (filtered_df["order_date"].dt.date <= end_date)
     ]
 
+
 filtered_df = filtered_df[
-    filtered_df["category"].astype(str).isin(selected_categories)
+    filtered_df["category"].astype(str).isin(
+        selected_categories
+    )
 ]
 
 filtered_df = filtered_df[
-    filtered_df["state"].astype(str).isin(selected_states)
-]
-
-filtered_df = filtered_df[
-    filtered_df["city"].astype(str).isin(selected_cities)
+    filtered_df["region"].astype(str).isin(
+        selected_regions
+    )
 ]
 
 
 if filtered_df.empty:
-    st.warning(
-        "No sales records found for the selected filters. "
-        "Please change your filters."
-    )
+
+    st.warning("No sales records found for the selected filters.")
     st.stop()
 
 
@@ -401,22 +383,23 @@ section_title("📈 Executive Summary")
 
 total_revenue = filtered_df["total_amount"].sum()
 
-total_orders = filtered_df["order_id"].nunique()
-
 total_units = filtered_df["quantity"].sum()
 
-total_customers = filtered_df["customer_id"].nunique()
+total_records = len(filtered_df)
 
-average_order_value = (
-    total_revenue / total_orders
-    if total_orders > 0 else 0
+total_products = filtered_df["product"].nunique()
+
+total_categories = filtered_df["category"].nunique()
+
+total_regions = filtered_df["region"].nunique()
+
+average_unit_price = (
+    filtered_df["unit_price"].mean()
 )
-
-total_line_items = len(filtered_df)
 
 
 # --------------------------------------------------
-# KPI METRICS
+# KPI CARDS
 # --------------------------------------------------
 
 col1, col2, col3 = st.columns(3)
@@ -425,21 +408,21 @@ with col1:
     metric_card(
         "Total Revenue",
         format_currency(total_revenue),
-        "Revenue generated"
+        "Calculated from quantity × unit price"
     )
 
 with col2:
     metric_card(
-        "Total Orders",
-        f"{total_orders:,}",
-        "Unique orders"
+        "Units Sold",
+        f"{total_units:,.0f}",
+        "Total quantity sold"
     )
 
 with col3:
     metric_card(
-        "Units Sold",
-        f"{total_units:,.0f}",
-        "Total quantity sold"
+        "Sales Records",
+        f"{total_records:,}",
+        "Number of dataset rows"
     )
 
 
@@ -449,28 +432,28 @@ col4, col5, col6 = st.columns(3)
 
 with col4:
     metric_card(
-        "Total Customers",
-        f"{total_customers:,}",
-        "Unique customers"
+        "Total Products",
+        f"{total_products:,}",
+        "Unique products"
     )
 
 with col5:
     metric_card(
-        "Average Order Value",
-        format_currency(average_order_value),
-        "Revenue per unique order"
+        "Categories",
+        f"{total_categories:,}",
+        "Product categories"
     )
 
 with col6:
     metric_card(
-        "Sales Line Items",
-        f"{total_line_items:,}",
-        "Total transaction records"
+        "Sales Regions",
+        f"{total_regions:,}",
+        "Regions represented"
     )
 
 
 # --------------------------------------------------
-# CHART SETTINGS
+# CHART CONFIGURATION
 # --------------------------------------------------
 
 plt.rcParams.update({
@@ -486,13 +469,15 @@ plt.rcParams.update({
 
 
 # --------------------------------------------------
-# MONTHLY REVENUE TREND
+# SALES PERFORMANCE
 # --------------------------------------------------
 
 section_title("📊 Sales Performance Analysis")
 
 chart_col1, chart_col2 = st.columns(2)
 
+
+# Monthly revenue
 with chart_col1:
 
     st.markdown("#### Monthly Revenue Trend")
@@ -524,10 +509,7 @@ with chart_col1:
     plt.close(fig)
 
 
-# --------------------------------------------------
-# CATEGORY REVENUE
-# --------------------------------------------------
-
+# Category revenue
 with chart_col2:
 
     st.markdown("#### Revenue by Category")
@@ -558,14 +540,14 @@ with chart_col2:
 
 
 # --------------------------------------------------
-# TOP PRODUCTS
+# PRODUCT PERFORMANCE
 # --------------------------------------------------
 
 section_title("🏆 Product Performance")
 
 product_revenue = (
     filtered_df
-    .groupby("product_name")["total_amount"]
+    .groupby("product")["total_amount"]
     .sum()
     .sort_values(ascending=False)
     .head(10)
@@ -589,28 +571,27 @@ plt.close(fig)
 
 
 # --------------------------------------------------
-# REVENUE BY CITY
+# REGIONAL PERFORMANCE
 # --------------------------------------------------
 
-section_title("🌍 Geographic Sales Analysis")
+section_title("🌍 Regional Sales Analysis")
 
-city_revenue = (
+region_revenue = (
     filtered_df
-    .groupby("city")["total_amount"]
+    .groupby("region")["total_amount"]
     .sum()
     .sort_values(ascending=False)
-    .head(10)
 )
 
 fig, ax = plt.subplots(figsize=(11, 5))
 
-city_revenue.sort_values().plot(
+region_revenue.sort_values().plot(
     kind="barh",
     ax=ax
 )
 
 ax.set_xlabel("Revenue (₹)")
-ax.set_ylabel("City")
+ax.set_ylabel("Region")
 ax.grid(axis="x", alpha=0.25)
 
 fig.tight_layout()
@@ -625,29 +606,16 @@ plt.close(fig)
 
 section_title("💡 Business Insights")
 
-best_category = (
-    filtered_df.groupby("category")["total_amount"]
-    .sum()
-    .idxmax()
-)
+best_category = category_revenue.idxmax()
 
-best_city = (
-    filtered_df.groupby("city")["total_amount"]
-    .sum()
-    .idxmax()
-)
+best_product = product_revenue.idxmax()
 
-best_product = (
-    filtered_df.groupby("product_name")["total_amount"]
-    .sum()
-    .idxmax()
-)
+best_region = region_revenue.idxmax()
 
-top_customer = (
-    filtered_df.groupby("customer_name")["total_amount"]
-    .sum()
-    .idxmax()
-)
+highest_revenue = region_revenue.max()
+
+top_product_revenue = product_revenue.max()
+
 
 insight_col1, insight_col2 = st.columns(2)
 
@@ -661,8 +629,8 @@ with insight_col1:
         </div>
 
         <div class="insight-card">
-            <strong>📍 Highest Revenue City</strong>
-            <p>{best_city}</p>
+            <strong>📦 Top Product by Revenue</strong>
+            <p>{best_product}</p>
         </div>
         """,
         unsafe_allow_html=True
@@ -674,13 +642,13 @@ with insight_col2:
     st.markdown(
         f"""
         <div class="insight-card">
-            <strong>📦 Top Selling Product by Revenue</strong>
-            <p>{best_product}</p>
+            <strong>🌍 Highest Revenue Region</strong>
+            <p>{best_region}</p>
         </div>
 
         <div class="insight-card">
-            <strong>👤 Highest Spending Customer</strong>
-            <p>{top_customer}</p>
+            <strong>💰 Revenue from Top Region</strong>
+            <p>{format_currency(highest_revenue)}</p>
         </div>
         """,
         unsafe_allow_html=True
@@ -688,34 +656,38 @@ with insight_col2:
 
 
 # --------------------------------------------------
-# CUSTOMER PERFORMANCE
+# PRODUCT SUMMARY TABLE
 # --------------------------------------------------
 
-section_title("👥 Customer Performance")
+section_title("📋 Product Performance Details")
 
-customer_performance = (
+product_summary = (
     filtered_df
     .groupby(
-        ["customer_id", "customer_name"],
+        ["product", "category"],
         as_index=False
     )
     .agg(
-        total_spent=("total_amount", "sum"),
-        total_orders=("order_id", "nunique"),
-        total_units=("quantity", "sum")
+        total_units=("quantity", "sum"),
+        total_revenue=("total_amount", "sum"),
+        average_price=("unit_price", "mean")
     )
     .sort_values(
-        "total_spent",
+        "total_revenue",
         ascending=False
     )
 )
 
-customer_performance["total_spent"] = (
-    customer_performance["total_spent"].round(2)
+product_summary["total_revenue"] = (
+    product_summary["total_revenue"].round(2)
+)
+
+product_summary["average_price"] = (
+    product_summary["average_price"].round(2)
 )
 
 st.dataframe(
-    customer_performance,
+    product_summary,
     use_container_width=True,
     hide_index=True
 )
@@ -725,10 +697,10 @@ st.dataframe(
 # DETAILED SALES RECORDS
 # --------------------------------------------------
 
-section_title("📋 Detailed Sales Records")
+section_title("🔎 Detailed Sales Records")
 
 search_query = st.text_input(
-    "🔍 Search by order ID, customer, product or city"
+    "Search by product, category or region"
 )
 
 display_df = filtered_df.copy()
@@ -738,11 +710,9 @@ if search_query:
     search_query = search_query.lower()
 
     search_columns = [
-        "order_id",
-        "customer_id",
-        "customer_name",
-        "product_name",
-        "city"
+        "product",
+        "category",
+        "region"
     ]
 
     mask = display_df[search_columns].astype(str).apply(
@@ -777,7 +747,7 @@ csv_data = filtered_df.to_csv(
 ).encode("utf-8")
 
 st.download_button(
-    label="📥 Download Filtered Sales Data",
+    label="📥 Download Filtered Sales Report",
     data=csv_data,
     file_name="sales_report.csv",
     mime="text/csv",
@@ -793,7 +763,7 @@ st.markdown("""
 <div class="footer">
     Sales Intelligence Dashboard · Powered by Streamlit and Pandas
     <br>
-    Data source: CSV · Cache duration: 5 minutes
+    Data Source: CSV · Cache Duration: 5 Minutes
 </div>
 """, unsafe_allow_html=True)
-    
+        
