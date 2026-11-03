@@ -157,9 +157,8 @@ def load_data():
         )
 
     df = pd.read_csv(CSV_FILE)
-
-st.write("CSV Column Names:", df.columns.tolist())
-st.write("First 5 Records:", df.head())
+    st.write("CSV Column Names:", df.columns.tolist())
+    st.write("First 5 Records:", df.head())
     
     # Normalize column names
     df.columns = (
