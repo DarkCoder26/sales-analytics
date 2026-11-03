@@ -1,70 +1,54 @@
 
+from pathlib import Path
 import pandas as pd
-from database.connection import get_connection
+import streamlit as st
 
 
+@st.cache_data
 def get_sales_data():
-    conn = None
+    csv_path = Path(__file__).resolve().parent.parent / "sales_data.csv"
 
-    query = """
-        SELECT
-            o.order_id,
-            o.order_date,
-            c.customer_id,
-            c.customer_name,
-            c.city,
-            c.state,
-            c.gender,
-            p.product_id,
-            p.product_name,
-            p.category,
-            p.price,
-            o.quantity,
-            o.total_amount
-        FROM orders AS o
-        INNER JOIN customers AS c
-            ON o.customer_id = c.customer_id
-        INNER JOIN products AS p
-            ON o.product_id = p.product_id
-        ORDER BY o.order_date;
-    """
+    if not csv_path.exists():
+        raise FileNotFoundError(
+            f"Sales CSV not found: {csv_path}"
+        )
 
-    try:
-        conn = get_connection()
+    df = pd.read_csv(csv_path)
 
-        cursor = conn.cursor()
-        try:
-            cursor.execute(query)
-            rows = cursor.fetchall()
-            columns = [column[0] for column in cursor.description]
-        finally:
-            cursor.close()
+    required_columns = [
+        "OrderDate",
+        "Product",
+        "Category",
+        "Quantity",
+        "UnitPrice",
+        "Region",
+    ]
 
-        df = pd.DataFrame(rows, columns=columns)
-        df["order_date"] = pd.to_datetime(df["order_date"])
+    missing = [
+        column for column in required_columns
+        if column not in df.columns
+    ]
 
-        return df
+    if missing:
+        raise ValueError(
+            f"Missing CSV columns: {', '.join(missing)}"
+        )
 
-    finally:
-        if conn is not None and conn.is_connected():
-            conn.close()
+    df["OrderDate"] = pd.to_datetime(
+        df["OrderDate"], errors="coerce"
+    )
+    df["Quantity"] = pd.to_numeric(
+        df["Quantity"], errors="coerce"
+    )
+    df["UnitPrice"] = pd.to_numeric(
+        df["UnitPrice"], errors="coerce"
+    )
 
+    df = df.dropna(
+        subset=["OrderDate", "Quantity", "UnitPrice"]
+    )
 
-if __name__ == "__main__":
-    try:
-        df = get_sales_data()
+    df["Sales"] = df["Quantity"] * df["UnitPrice"]
 
-        print("\nSALES DATA")
-        print(df.to_string(index=False))
-
-        print("\nSHAPE")
-        print(df.shape)
-
-        print("\nCOLUMNS")
-        print(df.columns.tolist())
-
-        print("\nDATA TYPES")
-        print(df.dtypes)
-
-    except Exception as error:
-        print(f"Error fetching sales data: {error}")
+    return df
+    
